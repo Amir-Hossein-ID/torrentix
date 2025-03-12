@@ -49,5 +49,22 @@ def _decode_unknown(bencode_str: bytes):
 def decode(bencode_str: bytes):
     return _decode_unknown(bencode_str)[0]
 
+def encode(obj):
+    if isinstance(obj, bytes):
+        return bytes(str(len(obj)), encoding='utf8') + b':' + obj
+    elif isinstance(obj, str):
+        return bytes(str(len(obj)), encoding='utf8') + b':' + bytes(obj, encoding='utf8')
+    elif isinstance(obj, int):
+        return b'i' + bytes(str(obj), encoding='utf8') + b'e'
+    elif isinstance(obj, list):
+        return b'l' +  b''.join(encode(i) for i in obj) + b'e'
+    elif isinstance(obj, dict):
+        return b'd' + b''.join(encode(i) + encode(obj[i]) for i in obj) + b'e'
+
 if __name__ == '__main__':
-    print(decode(b"d8:intervali3600e5:peersld2:ip13:192.168.24.524:porti2001eed2:ip11:192.168.0.34:porti6889eeee"))
+    a = b"d8:intervali3600e5:peersld2:ip13:192.168.24.524:porti2001eed2:ip11:192.168.0.34:porti6889eeee"
+    b = decode(a)
+    print(b)
+    c = encode(b)
+    print(c)
+    print(c == a)

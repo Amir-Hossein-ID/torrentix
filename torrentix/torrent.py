@@ -16,16 +16,33 @@ class Torrent:
         self.trackers = [Tracker(addr[0], self) for addr in
                          [[self.torrent_data['announce']]] + self.torrent_data.get('announce-list', [])]
     
-    # async def _get_peer(self):
-    #     # tasks = asyncio.gather(*[tracker.get_peer_list() for tracker in self.trackers])
+    async def _get_peer(self):
+        # tasks = asyncio.gather(*[tracker.get_peer_list() for tracker in self.trackers])
+        # udp://exodus.desync.com:6969/announce
+        # udp://open.stealth.si:80/announce
+        # udp://tracker.torrent.eu.org:451/announce
         
-    #     for i in self.trackers:
-    #         try:
-    #             print(i.announce_addr)
-    #             s = await i.get_peer_list()
-    #             print('FOUND',len(s))
-    #         except Exception as e:
-    #             print(e)
+        tracker = Tracker('udp://tracker.torrent.eu.org:451', self)
+        try:
+            print(tracker.announce_addr)
+            s = await tracker.get_peer_list()
+            print('FOUND',len(s))
+            i = 0
+            while True:
+                print(s[i].ip, s[i].port)
+                try:
+                    await asyncio.wait_for(s[i].handshake(), 10)
+                    break
+                except Exception as e:
+                    print(e)
+                    i += 1
+                
+
+
+        # except Exception as e:
+        #     print(e)
+        finally:
+            pass
 
 
 async def main():
@@ -34,7 +51,7 @@ async def main():
     # tr = Tracker('http://tracker.opentrackr.org/announce')
     # tr = Tracker('udp://tracker2.dler.org:80/announce', t)
     # await tr.get_peer_list(
-    # await t._get_peer()
+    await t._get_peer()
 
 if __name__ == '__main__':
     asyncio.run(main())

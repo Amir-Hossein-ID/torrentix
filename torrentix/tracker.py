@@ -89,10 +89,15 @@ class _UdpTrackerProtocol:
                 print('leechers:', leechers)
                 print('seeders:', seeders)
                 data = data[20:]
+
                 while data:
                     *ip, port = struct.unpack('>BBBBH', data[:6])
-                    self.tracker.peer_list.append(Peer('.'.join(str(i) for i in ip), str(port)))
+                    if not leechers:
+                     self.tracker.peer_list.append(Peer('.'.join(str(i) for i in ip), port, self.tracker.torrent))
+                    else:
+                        leechers -= 1
                     data = data[6:]
+
             self.on_con_lost.set_result(True)
         else:
             print('Invalid action or transaction_id')

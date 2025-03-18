@@ -43,9 +43,16 @@ class Torrent:
                     await asyncio.wait_for(s[i].handshake(), 10)
                     break
                 except Exception as e:
+                    await s[i].drop()
                     print(e)
                     i += 1
+            await asyncio.sleep(5)
+            await s[i].show_interest()
+            print('showing interest')
+            await asyncio.sleep(5)
+            await s[i].request_piece(0)
             while True:
+                print('sleeping')
                 await asyncio.sleep(1)
                 
 

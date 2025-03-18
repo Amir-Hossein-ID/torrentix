@@ -1,6 +1,8 @@
 import asyncio
 import struct
 
+BLOCK_LENGTH = 2 ** 14 # 16KB
+
 class Peer():
     def __init__(self, ip, port, torrent):
         self.ip = ip
@@ -13,6 +15,8 @@ class Peer():
         self.healthy = False
         self.pieces = [False] * torrent.piece_count
         self.peer_id = None
+        self.writer = None
+        self.reader = None
     
     async def handshake(self):
         pstrlen = 19
@@ -20,7 +24,6 @@ class Peer():
         reserved = 0
         info_hash = self.torrent.info_hash
         peer_id = self.torrent.peer_id
-
         reader, writer = await asyncio.open_connection(self.ip, self.port)
         message = struct.pack(f'>B{pstrlen}sQ', pstrlen, pstr, reserved) + info_hash + bytes(peer_id, 'utf8')
         writer.write(message)
@@ -50,11 +53,10 @@ class Peer():
     
     async def _listen(self):
         print('entered listen mode')
-        while True:
+        while self.healthy:
             try:
                 data = await self.reader.readexactly(4)
                 length = int.from_bytes(data, 'big')
-                print('read somthing', length)
                 if length == 0: # Keep alive
                     continue
 
@@ -66,13 +68,16 @@ class Peer():
                 payload = await self.reader.readexactly(length)
                 await self._handle_message(message_id, payload)
             except Exception as e:
+                print(e)
                 break
     
     async def _handle_message(self, message_id, payload):
+        print('message_id', message_id)
         match message_id:
             case 0: # Choke
                 self.am_choking = True
             case 1: # Unchoke
+                print('unchoked')
                 self.am_choking = False
             case 2: # Interested
                 self.peer_interested = True
@@ -81,12 +86,14 @@ class Peer():
             case 4: # Have
                 has_index = int.from_bytes(payload, 'big')
                 self.pieces[has_index] = True
-            case 5: # Bitfield 
+            case 5: # Bitfield
                 if len(payload) != ((self.torrent.piece_count + 8 - 1) // 8):
                     await self.drop()
+                    return
+                
                 index = 0
                 for byte in payload:
-                    have = bin(int.from_bytes(byte, 'big'))[2:]
+                    have = bin(byte)[2:]
                     for bit in have:
                         if bit == '1':
                             if index < len(self.pieces):
@@ -95,24 +102,40 @@ class Peer():
                                 # some error happend
                                 await self.drop()
                         index += 1
+                print('received bitfield')
             case 6: # Request
                 index, begin, length = struct.unpack('>III', payload)
             case 7: # Piece
                 index, begin = struct.unpack('>II', payload[:8])
                 block = payload[8:]
-                #TODO
+                print('recieved from', begin, len(block))
             case 8: # Cancel
                 index, begin, length = struct.unpack('>III', payload)
             case 9: # Port
                 port = int.from_bytes(payload, 'big')
     
-    async def request_piece(self):
-        if not self.healthy:
+    async def request_piece(self, index):
+        if not self.healthy or self.am_choking:
+            return False
+        if not self.pieces[index]:
             return False
         
-        pass
+        for begin in range(0, self.torrent.piece_length, BLOCK_LENGTH):
+            await self._request_block(index, begin, BLOCK_LENGTH)
+            print('requested from', begin)
+    
+    async def _request_block(self, index, begin, length):
+        data = struct.pack('>IBIII', 13, 6, index, begin, length)  # <len=13><id=6>
+        self.writer.write(data)
+        await self.writer.drain()
+
+    async def show_interest(self):
+        self.writer.write(struct.pack('>IB', 1, 2)) # <len=1><id=2>
+        await self.writer.drain()
     
     async def drop(self):
-        self.writer.close()
-        await self.writer.wait_closed()
+        print('dropping')
+        if self.writer:
+            self.writer.close()
+            await self.writer.wait_closed()
         self.healthy = False

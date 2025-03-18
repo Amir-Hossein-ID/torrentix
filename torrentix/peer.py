@@ -6,8 +6,14 @@ class Peer():
         self.ip = ip
         self.port = port
         self.torrent = torrent
-        self.choked = True
-        self.interested = False
+        self.am_choking = True
+        self.am_interested = False
+        self.peer_choking = True
+        self.peer_interested = False
+        self.handshaked = False
+        self.healthy = False
+        self.pieces = [False] * torrent.piece_count
+        self.peer_id = None
     
     async def handshake(self):
         pstrlen = 19
@@ -24,19 +30,77 @@ class Peer():
         data = await reader.readexactly(1)
         print(f'Received: {data.decode()!r}')
         data = int.from_bytes(data, 'big')
-        print(data)
-        newdata = await reader.readexactly(int(data))
+        newdata = await reader.readexactly(data)
         print('pstr', newdata.decode())
         newdata = await reader.readexactly(8)
         newdata = await reader.readexactly(20)
+        peer_id = await reader.readexactly(20)
         if self.torrent.info_hash == newdata:
             self.writer = writer
             self.reader = reader
+            self.handshaked = True
+            self.peer_id = peer_id
         else:
             return False
+        
+        asyncio.create_task(self._listen())
         
         # print('Close the connection')
         # writer.close()
         # await writer.wait_closed()
+    
+    async def _listen(self):
+        print('entered listen mode')
+        while True:
+            try:
+                data = await self.reader.readexactly(4)
+                length = int.from_bytes(data, 'big')
+                print('read somthing', length)
+                if length == 0: # Keep alive
+                    continue
 
+                data = await self.reader.readexactly(1)
+                message_id = int.from_bytes(data, 'big')
 
+                length -= 1
+
+                payload = await self.reader.readexactly(length)
+                await self._handle_message(message_id, payload)
+            except Exception as e:
+                break
+    
+    async def _handle_message(self, message_id, payload):
+        match message_id:
+            case 0: # Choke
+                self.am_choking = True
+            case 1: # Unchoke
+                self.am_choking = False
+            case 2: # Interested
+                self.peer_interested = True
+            case 3: # NotInterested
+                self.peer_interested = False
+            case 4: # Have
+                has_index = int.from_bytes(payload, 'big')
+                self.pieces[has_index] = True
+            case 5: # Bitfield 
+                if len(payload) != ((self.torrent.piece_count + 8 - 1) // 8):
+                    await self.drop()
+                have = bin(int.from_bytes(payload, byteorder='big'))[2:]
+                for i in range(len(self.pieces)):
+                    if have[i] == 0:
+                        self.pieces[i] = True
+            case 6: # Request
+                index, begin, length = struct.unpack('>III', payload)
+            case 7: # Piece
+                index, begin = struct.unpack('>II', payload[:8])
+                block = payload[8:]
+                #TODO
+            case 8: # Cancel
+                index, begin, length = struct.unpack('>III', payload)
+            case 9: # Port
+                port = int.from_bytes(payload, 'big')
+    
+    async def drop(self):
+        self.writer.close()
+        await self.writer.wait_closed()
+        self.healthy = False

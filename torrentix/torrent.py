@@ -13,6 +13,14 @@ class Torrent:
         with open(torrent_path, 'rb') as f:
             self.torrent_data = bencode.decode(f.read())
         self.info_hash = sha1(bencode.encode(self.torrent_data['info'])).digest()
+        self.piece_length = self.torrent_data['info']['piece length']
+        if 'files' in self.torrent_data['info']:
+            self.multi_file = True
+            self.total_length = sum(i['length'] for i in self.torrent_data['info']['files'])
+        else:
+            self.multi_file = False
+            self.total_length = self.torrent_data['info']['length']
+        self.piece_count = (self.total_length + self.piece_length - 1) // self.piece_length
         self.trackers = [Tracker(addr[0], self) for addr in
                          [[self.torrent_data['announce']]] + self.torrent_data.get('announce-list', [])]
     
@@ -21,8 +29,9 @@ class Torrent:
         # udp://exodus.desync.com:6969/announce
         # udp://open.stealth.si:80/announce
         # udp://tracker.torrent.eu.org:451/announce
+        # udp://tracker.torrent.eu.org:451
         
-        tracker = Tracker('udp://tracker.torrent.eu.org:451', self)
+        tracker = Tracker('udp://open.stealth.si:80/announce', self)
         try:
             print(tracker.announce_addr)
             s = await tracker.get_peer_list()
@@ -36,6 +45,8 @@ class Torrent:
                 except Exception as e:
                     print(e)
                     i += 1
+            while True:
+                await asyncio.sleep(1)
                 
 
 

@@ -10,7 +10,6 @@ class Peer():
         self.am_interested = False
         self.peer_choking = True
         self.peer_interested = False
-        self.handshaked = False
         self.healthy = False
         self.pieces = [False] * torrent.piece_count
         self.peer_id = None
@@ -38,7 +37,7 @@ class Peer():
         if self.torrent.info_hash == newdata:
             self.writer = writer
             self.reader = reader
-            self.handshaked = True
+            self.healthy = True
             self.peer_id = peer_id
         else:
             return False
@@ -85,10 +84,17 @@ class Peer():
             case 5: # Bitfield 
                 if len(payload) != ((self.torrent.piece_count + 8 - 1) // 8):
                     await self.drop()
-                have = bin(int.from_bytes(payload, byteorder='big'))[2:]
-                for i in range(len(self.pieces)):
-                    if have[i] == 0:
-                        self.pieces[i] = True
+                index = 0
+                for byte in payload:
+                    have = bin(int.from_bytes(byte, 'big'))[2:]
+                    for bit in have:
+                        if bit == '1':
+                            if index < len(self.pieces):
+                                self.pieces[index] = True
+                            else:
+                                # some error happend
+                                await self.drop()
+                        index += 1
             case 6: # Request
                 index, begin, length = struct.unpack('>III', payload)
             case 7: # Piece
@@ -99,6 +105,12 @@ class Peer():
                 index, begin, length = struct.unpack('>III', payload)
             case 9: # Port
                 port = int.from_bytes(payload, 'big')
+    
+    async def request_piece(self):
+        if not self.healthy:
+            return False
+        
+        pass
     
     async def drop(self):
         self.writer.close()

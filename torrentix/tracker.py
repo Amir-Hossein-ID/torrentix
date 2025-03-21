@@ -7,6 +7,8 @@ import random
 
 from peer import Peer
 
+TRACKER_TIMEOUT = 10
+
 user_agent = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0'}
 
 class Tracker:
@@ -34,7 +36,7 @@ class Tracker:
             remote_addr=(host, port))
 
         try:
-            await asyncio.wait_for(on_con_lost, 10)
+            await asyncio.wait_for(on_con_lost, TRACKER_TIMEOUT)
         finally:
             transport.close()
         return self.peer_list
@@ -48,11 +50,11 @@ class Tracker:
                         'port': 6881,
                         'uploaded': 0,
                         'downloaded': 0,
-                        'left': 2042402026, #TODO
-                        # 'compact': 1,
+                        'left': self.torrent.total_length,
+                        # 'compact': 1, #TODO
                         'event': 'started',
                         }, 
-                timeout=5)
+                timeout=TRACKER_TIMEOUT) #TODO
             answer = bencode.decode(await r.read())
             print('HELLO', answer)
             self.peer_list = answer.get('peers', [])
@@ -92,8 +94,8 @@ class _UdpTrackerProtocol:
 
                 while data:
                     *ip, port = struct.unpack('>BBBBH', data[:6])
-                    if not leechers:
-                     self.tracker.peer_list.append(Peer('.'.join(str(i) for i in ip), port, self.tracker.torrent))
+                    if not leechers: #TODO
+                        self.tracker.peer_list.append(Peer('.'.join(str(i) for i in ip), port, self.tracker.torrent))
                     else:
                         leechers -= 1
                     data = data[6:]
@@ -134,7 +136,7 @@ class _UdpTrackerProtocol:
                                         info_hash,
                                         self.tracker.torrent.peer_id.encode(),
                                         0, # downloaded
-                                        2042402026, # left #TODO
+                                        self.tracker.torrent.total_length, # left
                                         0, # uploaded
                                         2, # event, started
                                         0, # ip

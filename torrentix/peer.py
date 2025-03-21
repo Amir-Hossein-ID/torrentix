@@ -2,6 +2,7 @@ import asyncio
 import struct
 
 BLOCK_LENGTH = 2 ** 14 # 16KB
+HANDSHAKE_TIMEOUT = 15
 
 class Peer():
     def __init__(self, ip, port, torrent):
@@ -24,28 +25,32 @@ class Peer():
         reserved = 0
         info_hash = self.torrent.info_hash
         peer_id = self.torrent.peer_id
-        reader, writer = await asyncio.open_connection(self.ip, self.port)
         message = struct.pack(f'>B{pstrlen}sQ', pstrlen, pstr, reserved) + info_hash + bytes(peer_id, 'utf8')
-        writer.write(message)
-        await writer.drain()
-        print('wrote')
-        data = await reader.readexactly(1)
-        print(f'Received: {data.decode()!r}')
-        data = int.from_bytes(data, 'big')
-        newdata = await reader.readexactly(data)
-        print('pstr', newdata.decode())
-        newdata = await reader.readexactly(8)
-        newdata = await reader.readexactly(20)
-        peer_id = await reader.readexactly(20)
-        if self.torrent.info_hash == newdata:
+
+        async def handle_handshake():
+            reader, writer = await asyncio.open_connection(self.ip, self.port)
+            writer.write(message)
+            await writer.drain()
+            print('wrote')
+            data = await reader.readexactly(1)
+            print(f'Received: {data.decode()!r}')
+            data = int.from_bytes(data, 'big')
+            newdata = await reader.readexactly(data)
+            print('pstr', newdata.decode())
+            newdata = await reader.readexactly(8)
+            newdata = await reader.readexactly(20)
+            peer_id = await reader.readexactly(20)
+            self.peer_id = peer_id
             self.writer = writer
             self.reader = reader
-            self.healthy = True
-            self.peer_id = peer_id
-        else:
+
+            return info_hash
+        if self.torrent.info_hash != (await asyncio.wait_for(handle_handshake(), timeout=HANDSHAKE_TIMEOUT)):
             return False
-        
+
+        self.healthy = True
         asyncio.create_task(self._listen())
+        return True
         
         # print('Close the connection')
         # writer.close()
@@ -109,6 +114,7 @@ class Peer():
                 index, begin = struct.unpack('>II', payload[:8])
                 block = payload[8:]
                 print('recieved from', begin, len(block))
+                await self.torrent.new_block(index, begin, block)
             case 8: # Cancel
                 index, begin, length = struct.unpack('>III', payload)
             case 9: # Port
@@ -131,6 +137,10 @@ class Peer():
 
     async def show_interest(self):
         self.writer.write(struct.pack('>IB', 1, 2)) # <len=1><id=2>
+        await self.writer.drain()
+    
+    async def keep_alive(self):
+        self.writer.write(struct.pack('>I', 0)) # <len=0>
         await self.writer.drain()
     
     async def drop(self):

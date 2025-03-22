@@ -18,6 +18,7 @@ class Peer():
         self.peer_id = None
         self.writer = None
         self.reader = None
+        self.events = {}
     
     async def handshake(self):
         pstrlen = 19
@@ -83,6 +84,9 @@ class Peer():
                 self.am_choking = True
             case 1: # Unchoke
                 print('unchoked')
+                if 'unchoked' in self.events:
+                    self.events['unchoked'].set()
+                    del self.events['unchoked']
                 self.am_choking = False
             case 2: # Interested
                 self.peer_interested = True
@@ -114,6 +118,9 @@ class Peer():
                 index, begin = struct.unpack('>II', payload[:8])
                 block = payload[8:]
                 print('recieved from', begin, len(block))
+                if (index, begin) in self.events:
+                    self.events[index, begin].set()
+                    del self.events[index, begin]
                 await self.torrent.new_block(index, begin, block)
             case 8: # Cancel
                 index, begin, length = struct.unpack('>III', payload)
@@ -127,16 +134,20 @@ class Peer():
             return False
         
         for begin in range(0, self.torrent.piece_length, BLOCK_LENGTH):
-            await self._request_block(index, begin, BLOCK_LENGTH)
+            await self.request_block(index, begin, BLOCK_LENGTH)
             print('requested from', begin)
     
-    async def _request_block(self, index, begin, length):
+    async def request_block(self, index, begin, length, event:asyncio.Event=None):
         data = struct.pack('>IBIII', 13, 6, index, begin, length)  # <len=13><id=6>
         self.writer.write(data)
         await self.writer.drain()
+        if event:
+            self.events[index, begin] = event
 
-    async def show_interest(self):
+    async def show_interest(self, event:asyncio.Event=None):
         self.writer.write(struct.pack('>IB', 1, 2)) # <len=1><id=2>
+        if event:
+            self.events['unchoked'] = event
         await self.writer.drain()
     
     async def keep_alive(self):

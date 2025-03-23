@@ -80,7 +80,7 @@ class PeerManager:
         for begin in range(0, piece_length, BLOCK_LENGTH):
             future = asyncio.Future()
             if begin + BLOCK_LENGTH > piece_length:
-                peer.request_block(index, begin, piece_length - begin, future)
+                await peer.request_block(index, begin, piece_length - begin, future)
             else:
                 await peer.request_block(index, begin, BLOCK_LENGTH, future)
             futures.append(future)

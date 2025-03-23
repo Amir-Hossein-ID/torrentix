@@ -7,7 +7,7 @@ import random
 
 from peer import Peer
 
-TRACKER_TIMEOUT = 10
+TRACKER_TIMEOUT = 15
 
 user_agent = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0'}
 
@@ -21,7 +21,7 @@ class Tracker:
         if self.announce_addr.startswith('http'):
             return await self._get_http_peer_list()
         elif self.announce_addr.startswith('udp'):
-            print('calling udp')
+            # print('calling udp')
             return await self._get_udp_peer_list()
         else:
             raise NotImplementedError('Unsupported protocol')
@@ -30,7 +30,7 @@ class Tracker:
         loop = asyncio.get_running_loop()
         on_con_lost = loop.create_future()
         host, port = urlparse(self.announce_addr).netloc.split(':')
-        print(host, port)
+        # print(host, port)
         transport, protocol = await loop.create_datagram_endpoint(
             lambda: _UdpTrackerProtocol(self, on_con_lost),
             remote_addr=(host, port))
@@ -56,9 +56,18 @@ class Tracker:
                         }, 
                 timeout=TRACKER_TIMEOUT) #TODO
             answer = bencode.decode(await r.read())
-            print('HELLO', answer)
             self.peer_list = answer.get('peers', [])
+            if isinstance(self.peer_list, bytes):
+                self.peer_list = self.bytes_to_peers(self.peer_list)
+            else:
+                self.peer_list = [Peer(peer['ip'], peer['port'], self.torrent) for peer in self.peer_list]
             return self.peer_list
+    
+    def bytes_to_peers(self, data):
+        while data:
+            *ip, port = struct.unpack('>BBBBH', data[:6])
+            self.peer_list.append(Peer('.'.join(str(i) for i in ip), port, self.torrent))
+            data = data[6:]
 
 class _UdpTrackerProtocol:
     def __init__(self, tracker: Tracker, on_con_lost):
@@ -74,49 +83,47 @@ class _UdpTrackerProtocol:
     def datagram_received(self, data, addr):
         if self.state == 'connection':
             if len(data) < 16:
-                print('Invalid data received')
+                # print('Invalid data received')
                 return
             action, transaction_id, connection_id = struct.unpack('>IIQ', data[:16])
             if action == 0 and transaction_id == self.transaction_id:
-                print('connection response received')
+                # print('connection response received')
                 self._send_announce_request(connection_id)
         elif self.state == 'announce':
             if len(data) < 20:
-                print('Invalid data received')
+                # print('Invalid data received')
                 return
             action, transaction_id, interval, leechers, seeders = struct.unpack('>IIIII', data[:20])
             if action == 1 and transaction_id == self.transaction_id:
-                print('announce response received')
-                print('interval:', interval)
-                print('leechers:', leechers)
+                # print('announce response received')
+                # print('interval:', interval)
+                # print('leechers:', leechers)
                 print('seeders:', seeders)
                 data = data[20:]
 
-                while data:
-                    *ip, port = struct.unpack('>BBBBH', data[:6])
-                    if not leechers: #TODO
-                        self.tracker.peer_list.append(Peer('.'.join(str(i) for i in ip), port, self.tracker.torrent))
-                    else:
-                        leechers -= 1
-                    data = data[6:]
+                self.tracker.bytes_to_peers(data)
 
             self.on_con_lost.set_result(True)
         else:
-            print('Invalid action or transaction_id')
+            pass
+            # print('Invalid action or transaction_id')
 
         self.data = data
     
     def eof_received(self):
-        print("EOF received")
+        pass
+        # print("EOF received")
 
     def error_received(self, exc):
-        print('Error received:', exc)
+        pass
+        # print('Error received:', exc)
 
     def connection_lost(self, exc):
-        print("Connection closed")
+        pass
+        # print("Connection closed")
     
     def _send_connection_request(self):
-        print('sending connection request')
+        # print('sending connection request')
         self.transaction_id = random.randint(0, 0xFFFFFFFF)
         connection_request = struct.pack('>QII',
                                          0x41727101980, # protocol_id, magic constant
@@ -125,7 +132,7 @@ class _UdpTrackerProtocol:
         self.transport.sendto(connection_request)
     
     def _send_announce_request(self, connection_id):
-        print('sending announce request')
+        # print('sending announce request')
         self.state = 'announce'
         self.transaction_id = random.randint(0, 0xFFFFFFFF)
         info_hash = self.tracker.torrent.info_hash

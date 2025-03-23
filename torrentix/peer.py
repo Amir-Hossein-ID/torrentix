@@ -1,8 +1,7 @@
 import asyncio
 import struct
 
-BLOCK_LENGTH = 2 ** 14 # 16KB
-HANDSHAKE_TIMEOUT = 15
+HANDSHAKE_TIMEOUT = 10
 
 class Peer():
     def __init__(self, ip, port, torrent):
@@ -32,12 +31,12 @@ class Peer():
             reader, writer = await asyncio.open_connection(self.ip, self.port)
             writer.write(message)
             await writer.drain()
-            print('wrote')
+            # print('wrote')
             data = await reader.readexactly(1)
-            print(f'Received: {data.decode()!r}')
+            # print(f'Received: {data.decode()!r}')
             data = int.from_bytes(data, 'big')
             newdata = await reader.readexactly(data)
-            print('pstr', newdata.decode())
+            # print('pstr', newdata.decode())
             newdata = await reader.readexactly(8)
             newdata = await reader.readexactly(20)
             peer_id = await reader.readexactly(20)
@@ -58,7 +57,7 @@ class Peer():
         # await writer.wait_closed()
     
     async def _listen(self):
-        print('entered listen mode')
+        # print('entered listen mode')
         while self.healthy:
             try:
                 data = await self.reader.readexactly(4)
@@ -74,16 +73,16 @@ class Peer():
                 payload = await self.reader.readexactly(length)
                 await self._handle_message(message_id, payload)
             except Exception as e:
-                print(e)
+                # print(e)
                 break
     
     async def _handle_message(self, message_id, payload):
-        print('message_id', message_id)
+        # print('message_id', message_id)
         match message_id:
             case 0: # Choke
                 self.am_choking = True
             case 1: # Unchoke
-                print('unchoked')
+                # print('unchoked')
                 if 'unchoked' in self.events:
                     self.events['unchoked'].set()
                     del self.events['unchoked']
@@ -111,33 +110,23 @@ class Peer():
                                 # some error happend
                                 await self.drop()
                         index += 1
-                print('received bitfield')
+                # print('received bitfield')
             case 6: # Request
                 index, begin, length = struct.unpack('>III', payload)
             case 7: # Piece
                 index, begin = struct.unpack('>II', payload[:8])
                 block = payload[8:]
-                print('recieved from', begin, len(block))
+                # print(index, begin, self.events)
                 if (index, begin) in self.events:
-                    self.events[index, begin].set()
+                    self.events[index, begin].set_result(block)
                     del self.events[index, begin]
-                await self.torrent.new_block(index, begin, block)
+                # await self.torrent.new_block(index, begin, block)
             case 8: # Cancel
                 index, begin, length = struct.unpack('>III', payload)
             case 9: # Port
                 port = int.from_bytes(payload, 'big')
     
-    async def request_piece(self, index):
-        if not self.healthy or self.am_choking:
-            return False
-        if not self.pieces[index]:
-            return False
-        
-        for begin in range(0, self.torrent.piece_length, BLOCK_LENGTH):
-            await self.request_block(index, begin, BLOCK_LENGTH)
-            print('requested from', begin)
-    
-    async def request_block(self, index, begin, length, event:asyncio.Event=None):
+    async def request_block(self, index, begin, length, event:asyncio.Future=None):
         data = struct.pack('>IBIII', 13, 6, index, begin, length)  # <len=13><id=6>
         self.writer.write(data)
         await self.writer.drain()
@@ -155,8 +144,11 @@ class Peer():
         await self.writer.drain()
     
     async def drop(self):
-        print('dropping')
+        # print('dropping')
         if self.writer:
             self.writer.close()
             await self.writer.wait_closed()
         self.healthy = False
+    
+    def is_busy(self):
+        return bool(self.events)

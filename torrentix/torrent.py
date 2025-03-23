@@ -1,15 +1,18 @@
 import bencode
 from tracker import Tracker
+from peer_manager import PeerManager
 import asyncio
 from hashlib import sha1
 from string import digits, ascii_letters
 import random
+from bisect import bisect
 
 chars = digits + ascii_letters
 
 class Torrent:
-    def __init__(self, torrent_path):
+    def __init__(self, torrent_path, max_peers=15):
         self.peer_id = ''.join(random.choice(chars) for i in range(20))
+        self.max_peers = max_peers
         with open(torrent_path, 'rb') as f:
             self.torrent_data = bencode.decode(f.read())
         self.info_hash = sha1(bencode.encode(self.torrent_data['info'])).digest()
@@ -21,56 +24,45 @@ class Torrent:
             self.multi_file = False
             self.total_length = self.torrent_data['info']['length']
         self.piece_count = (self.total_length + self.piece_length - 1) // self.piece_length
-        self.trackers = [Tracker(addr[0], self) for addr in
+        trackers = [Tracker(addr[0], self) for addr in
                          [[self.torrent_data['announce']]] + self.torrent_data.get('announce-list', [])]
+        self.peer_manager = PeerManager(trackers, self, max_peers)
+        # self.pieces = {i: (i * self.piece_length, min((i+1) * self.piece_length, self.total_length))
+        #                for i in range(self.piece_count)}
+        self.pieces = {i: [(0, self.piece_length)]
+                       for i in range(self.piece_count)}
+        self.pieces[self.piece_count - 1] = [(0, self.total_length % self.piece_length)]
+        self.in_progress = {}
+        self.done = []
     
-    async def _get_peer(self):
-        # tasks = asyncio.gather(*[tracker.get_peer_list() for tracker in self.trackers])
-        # udp://exodus.desync.com:6969/announce
-        # udp://open.stealth.si:80/announce
-        # udp://tracker.torrent.eu.org:451/announce
-        # udp://tracker.torrent.eu.org:451
-        
-        tracker = Tracker('udp://open.stealth.si:80/announce', self)
-        try:
-            print(tracker.announce_addr)
-            s = await tracker.get_peer_list()
-            print('FOUND',len(s))
-            i = 0
-            while True:
-                print(s[i].ip, s[i].port)
-                try:
-                    await asyncio.wait_for(s[i].handshake(), 10)
-                    break
-                except Exception as e:
-                    await s[i].drop()
-                    print(e)
-                    i += 1
-            await asyncio.sleep(5)
-            await s[i].show_interest()
-            print('showing interest')
-            await asyncio.sleep(5)
-            await s[i].request_piece(0)
-            while True:
-                print('sleeping')
-                await asyncio.sleep(1)
-                
-
-
-        # except Exception as e:
-        #     print(e)
-        finally:
-            pass
+    async def start(self):
+        asyncio.create_task(self.peer_manager.ensure_peers())
+        in_progress_pieces = {}
+        while self.pieces:
+            for i in self.pieces:
+                if i in in_progress_pieces:
+                    continue
+                await self.peer_manager.wait_ready()
+                peer = await self.peer_manager.peer_having_piece(i)
+                if peer:
+                    print('\033[93m' + 'got peer', i, '\033[0m')
+                    piece_corutine = await self.peer_manager.get_piece_from_peer(i, peer, self.piece_length)
+                    in_progress_pieces[i] = asyncio.create_task(self.new_piece(i, piece_corutine))
+            for i in self.done:
+                self.pieces.pop(i, None)
+                in_progress_pieces.pop(i, None)
+    
+    async def new_piece(self, index, piece_corut):
+        data = await piece_corut
+        print('\033[92m' + 'new', index)
+        # remove the recieved part from self.pieces
+        self.done.append(index)
+        #TODO write and check hash
 
 
 async def main():
-    t = Torrent('t.torrent')
-    # print(t.torrent_data['announce-list'])
-    # tr = Tracker('http://tracker.opentrackr.org/announce')
-    # tr = Tracker('udp://tracker2.dler.org:80/announce', t)
-    # await tr.get_peer_list(
-    await t._get_peer()
+    t = Torrent('t4.torrent', max_peers=25)
+    await t.start()
 
 if __name__ == '__main__':
     asyncio.run(main())
-    

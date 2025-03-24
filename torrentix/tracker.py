@@ -1,10 +1,11 @@
-from aiohttp import ClientSession
-from urllib.parse import quote_plus, urlparse
 import asyncio
-import bencode
 import struct
 import random
+from urllib.parse import quote_plus, urlparse
 
+from aiohttp import ClientSession
+
+import bencode
 from peer import Peer
 
 TRACKER_TIMEOUT = 15

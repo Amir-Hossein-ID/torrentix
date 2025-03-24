@@ -1,14 +1,16 @@
+import asyncio
+from hashlib import sha1
+import random
+import os
+
+import aiofiles
+from tqdm import tqdm
+
 import bencode
 from tracker import Tracker
 from peer_manager import PeerManager
-import asyncio
-from hashlib import sha1
-from string import digits, ascii_letters
-import random
-import aiofiles
-import os
-from tqdm import tqdm
 
+from string import digits, ascii_letters
 chars = digits + ascii_letters
 
 class Torrent:
@@ -129,12 +131,3 @@ class Torrent:
                 # print('\033[91m' + 'bad hash', index, '\033[0m')
         except asyncio.TimeoutError:
             self.in_progress.pop(index, None)
-
-
-
-async def main():
-    t = Torrent('t4.torrent', max_peers=25)
-    await t.start()
-
-if __name__ == '__main__':
-    asyncio.run(main())

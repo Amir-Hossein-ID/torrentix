@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "torrentix"
+version = "0.1.0"
+description = "Torrent Downloader written from scratch in Python"
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]
+keywords = ["torrent", "magnet", "downloader", "torrentix"]
+dependencies = [
+    "aiohttp >= 3.11.0",
+    "aiofiles >= 24.1.0",
+    "tqdm >= 4.67.0"
+]
+
+requires-python = ">=3.10"
+
+[project.urls]
+Homepage = "https://github.com/Amir-Hossein-ID/torrentix"

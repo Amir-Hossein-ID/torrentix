@@ -2,7 +2,7 @@ import asyncio
 import random
 
 BLOCK_LENGTH = 2**14 # 16KB
-UNCHOKE_TIMEOUT = 5
+UNCHOKE_TIMEOUT = 10
 MAX_TRACKERS = 10
 
 class PeerManager:
@@ -18,14 +18,35 @@ class PeerManager:
     
     async def wait_ready(self):
         print('waiting for peers')
+        await self.check_ready()
         await self.is_ready.wait()
         print('wait ended')
     
     async def check_ready(self):
+        i = 0
+        while i < len(self.active_peers):
+            if not self.active_peers[i].healthy or self.active_peers[i].am_choking:
+                await self.remove_peer(self.active_peers[i])
+            else:
+                i += 1
         for i in self.active_peers:
             if not i.is_busy():
                 self.is_ready.set()
+                return
         self.is_ready.clear()
+    
+    async def remove_peers_not_having_piece(self, pieces):
+        i = 0
+        while i < len(self.active_peers):
+            peer = self.active_peers[i]
+            for piece in pieces:
+                if peer.pieces[piece]:
+                    break
+            else:
+                await self.remove_peer(peer)
+                continue
+            i += 1
+        await self.check_ready()
     
     async def capture_peers(self):
         for tracker in self.trackers:
@@ -44,6 +65,8 @@ class PeerManager:
         await self.capture_peers()
         while True:
             await self.peers_semaphore.acquire() # so we dont get more than "max_conn" peers at the same time
+            if self.tracker_semaphore._value == MAX_TRACKERS and self.peers.qsize() == 0:
+                await self.capture_peers()
             peer = await self.peers.get()
             asyncio.create_task(self.check_peer(peer))
     
@@ -63,6 +86,7 @@ class PeerManager:
     
     async def remove_peer(self, peer):
         self.active_peers.remove(peer)
+        await peer.drop()
         self.peers_semaphore.release()
         await self.check_ready()
     

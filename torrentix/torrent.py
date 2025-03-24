@@ -49,9 +49,9 @@ class Torrent:
     async def _check_pieces(self):
         cur_piece = 0
         data = b''
-        print(self.files)
         for file in self.files:
             async with aiofiles.open(file['path'], 'r+b') as f:
+                await f.truncate(file['length'])
                 while True:
                     data += await f.read(self.piece_length - len(data))
                     if len(data) != self.piece_length:
@@ -60,58 +60,64 @@ class Torrent:
                         print('\033[96m' + 'already got piece', cur_piece, '\033[0m')
                         del self.pieces[cur_piece]
                         self.done.append(cur_piece)
-                    # else:
-                    #     print('\033[91m' + 'bad hash', cur_piece, '\033[0m')
                     data = b''
                     cur_piece += 1
+        if sha1(data).digest() == self.torrent_data['info']['pieces'][cur_piece * 20: (cur_piece+1) * 20]:
+            print('\033[96m' + 'already got piece', cur_piece, '\033[0m')
+            del self.pieces[cur_piece]
+            self.done.append(cur_piece)
     
     async def start(self):
         await self._check_pieces()
+        print('REMAINING', len(self.pieces), 'from', self.piece_count)
         asyncio.create_task(self.peer_manager.ensure_peers())
         while self.pieces:
             for i in self.pieces:
-                if i in self.in_progress:
+                if i in self.in_progress and len(self.pieces) != len(self.in_progress):
                     continue
                 await self.peer_manager.wait_ready()
                 peer = await self.peer_manager.peer_having_piece(i)
                 if peer:
                     print('\033[93m' + 'got peer', i, self.peer_manager.active_peers.__len__(), '\033[0m')
-                    piece_corutine = await self.peer_manager.get_piece_from_peer(i, peer, self.piece_length)
+                    piece_corutine = await self.peer_manager.get_piece_from_peer(i, peer, self.pieces[i][-1][1])
                     self.in_progress[i] = asyncio.create_task(self._new_piece(i, piece_corutine))
             for i in self.done:
                 self.pieces.pop(i, None)
                 self.in_progress.pop(i, None)
+            await self.peer_manager.remove_peers_not_having_piece(self.pieces.keys())
     
     async def _new_piece(self, index, piece_corut):
-        data = await piece_corut
-        # print('\033[92m' + 'new', index)
-        #TODO write and check hash
-        if sha1(data).digest() == self.torrent_data['info']['pieces'][index * 20: (index+1) * 20]:
-            self.done.append(index)
-            print('\033[92m' + 'new', index)
-            start = self.piece_length * index
-            end = start + self.piece_length
-            cur = 0
-            for file in self.files:
-                cur += file['length']
-                if start <= cur:
-                    async with aiofiles.open(file['path'], 'r+b') as f:
-                        await f.seek(start - cur + file['length'])
-                        if end > cur + file['length']:
-                            await f.write(data[: cur - start])
-                            start = cur
-                            data = data[cur - start:]
-                        else:
-                            await f.write(data)
-                            break
-        else:
+        try:
+            data = await asyncio.wait_for(piece_corut, 60) #TODO: pieces timeout
+            # print('\033[92m' + 'new', index)
+            if sha1(data).digest() == self.torrent_data['info']['pieces'][index * 20: (index+1) * 20]:
+                print('\033[92m' + 'new', index, '\033[0m')
+                start = self.piece_length * index
+                end = start + len(data)
+                cur = 0
+                for file in self.files:
+                    cur += file['length']
+                    if start <= cur:
+                        async with aiofiles.open(file['path'], 'r+b') as f:
+                            await f.seek(start - cur + file['length'])
+                            if end > cur:
+                                await f.write(data[: cur - start])
+                                data = data[cur - start:]
+                                start = cur
+                            else:
+                                await f.write(data)
+                                break
+                self.done.append(index)
+            else:
+                self.in_progress.pop(index, None)
+                print('\033[91m' + 'bad hash', index, '\033[0m')
+        except asyncio.TimeoutError:
             self.in_progress.pop(index, None)
-            print('\033[91m' + 'bad hash', index)
 
 
 
 async def main():
-    t = Torrent('t4.torrent', max_peers=25)
+    t = Torrent('t3.torrent', max_peers=25)
     await t.start()
 
 if __name__ == '__main__':

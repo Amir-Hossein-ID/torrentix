@@ -5,8 +5,8 @@ from urllib.parse import quote_plus, urlparse
 
 from aiohttp import ClientSession
 
-import bencode
-from peer import Peer
+import torrentix.bencode as bencode
+from torrentix.peer import Peer
 
 TRACKER_TIMEOUT = 15
 

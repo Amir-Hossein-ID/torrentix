@@ -6,9 +6,9 @@ import os
 import aiofiles
 from tqdm import tqdm
 
-import bencode
-from tracker import Tracker
-from peer_manager import PeerManager
+import torrentix.bencode as bencode
+from torrentix.tracker import Tracker
+from torrentix.peer_manager import PeerManager
 
 from string import digits, ascii_letters
 chars = digits + ascii_letters

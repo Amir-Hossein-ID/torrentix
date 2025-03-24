@@ -1,7 +1,8 @@
 import asyncio
 import struct
 
-HANDSHAKE_TIMEOUT = 10
+HANDSHAKE_TIMEOUT = 15
+KEEP_ALIVE_TIMEOUT = 60
 
 class Peer():
     def __init__(self, ip, port, torrent):
@@ -17,6 +18,8 @@ class Peer():
         self.peer_id = None
         self.writer = None
         self.reader = None
+        self.last_active = 0
+        self.keep_alive_task = None
         self.events = {}
     
     async def handshake(self):
@@ -49,6 +52,10 @@ class Peer():
             return False
 
         self.healthy = True
+        self.last_active = asyncio.get_event_loop().time()
+        #TODO: gives error
+        # self.keep_alive_task = asyncio.get_event_loop().call_later(KEEP_ALIVE_TIMEOUT, asyncio.create_task, self.keep_alive())
+        # print('after schedule')
         asyncio.create_task(self._listen())
         return True
         
@@ -73,8 +80,10 @@ class Peer():
                 payload = await self.reader.readexactly(length)
                 await self._handle_message(message_id, payload)
             except Exception as e:
-                # print(e)
+                print('exception in listen', e, type(e))
+                self.healthy = False
                 break
+        await self.drop()
     
     async def _handle_message(self, message_id, payload):
         # print('message_id', message_id)
@@ -127,28 +136,54 @@ class Peer():
                 port = int.from_bytes(payload, 'big')
     
     async def request_block(self, index, begin, length, event:asyncio.Future=None):
-        data = struct.pack('>IBIII', 13, 6, index, begin, length)  # <len=13><id=6>
-        self.writer.write(data)
-        await self.writer.drain()
-        if event:
-            self.events[index, begin] = event
+        try:
+            self.last_active = asyncio.get_event_loop().time()
+            # self.keep_alive_task.cancel()
+            if event:
+                self.events[index, begin] = event
+            data = struct.pack('>IBIII', 13, 6, index, begin, length)  # <len=13><id=6>
+            self.writer.write(data)
+            await self.writer.drain()
+            # self.keep_alive_task = asyncio.get_event_loop().call_later(KEEP_ALIVE_TIMEOUT, asyncio.create_task, self.keep_alive())
+        except Exception as e:
+            await self.drop()
 
     async def show_interest(self, event:asyncio.Event=None):
-        self.writer.write(struct.pack('>IB', 1, 2)) # <len=1><id=2>
-        if event:
-            self.events['unchoked'] = event
-        await self.writer.drain()
+        try:
+            self.last_active = asyncio.get_event_loop().time()
+            # self.keep_alive_task.cancel()
+            if event:
+                self.events['unchoked'] = event
+            self.writer.write(struct.pack('>IB', 1, 2)) # <len=1><id=2>
+            await self.writer.drain()
+            # self.keep_alive_task = asyncio.get_event_loop().call_later(KEEP_ALIVE_TIMEOUT, asyncio.create_task, self.keep_alive())
+        except Exception as e:
+            await self.drop()
     
     async def keep_alive(self):
-        self.writer.write(struct.pack('>I', 0)) # <len=0>
-        await self.writer.drain()
+        self.last_active = asyncio.get_event_loop().time()
+        # self.keep_alive_task.cancel()
+        try:
+            self.writer.write(struct.pack('>I', 0)) # <len=0>
+            await self.writer.drain()
+        except Exception as e:
+            self.healthy = False
+            return
+        # self.keep_alive_task = asyncio.get_event_loop().call_later(KEEP_ALIVE_TIMEOUT, asyncio.create_task, self.keep_alive())
     
     async def drop(self):
         # print('dropping')
         if self.writer:
             self.writer.close()
             await self.writer.wait_closed()
+        if self.keep_alive_task:
+            self.keep_alive_task.cancel()
+        for i in self.events:
+            if i != 'unchoked':
+                self.events[i].set_result(b'')
+                # TODO: set_exception
+        self.events = {}
         self.healthy = False
-    
+
     def is_busy(self):
         return bool(self.events)

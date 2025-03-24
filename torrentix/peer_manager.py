@@ -17,10 +17,10 @@ class PeerManager:
         self.peers_semaphore = asyncio.Semaphore(max_conn)
     
     async def wait_ready(self):
-        print('waiting for peers')
+        # print('waiting for peers')
         await self.check_ready()
         await self.is_ready.wait()
-        print('wait ended')
+        # print('wait ended')
     
     async def check_ready(self):
         i = 0
@@ -59,7 +59,8 @@ class PeerManager:
                 for peer in peers:
                     await self.peers.put(peer)
             except Exception as e:
-                print('error capturing from tracker', e, type(e))
+                pass
+                # print('error capturing from tracker', e, type(e))
     
     async def ensure_peers(self):
         await self.capture_peers()
@@ -80,7 +81,7 @@ class PeerManager:
                 self.active_peers.append(peer)
                 await self.check_ready()
         except Exception as e:
-            print('error handshaking with peer', e, type(e))
+            # print('error handshaking with peer', e, type(e))
             await peer.drop()
             self.peers_semaphore.release()
     
@@ -118,7 +119,8 @@ class PeerManager:
         while asd:
             d, asd = await asyncio.wait(asd, return_when=asyncio.FIRST_COMPLETED)
             i += len(d)
-            print(f'\033[92mgot {i} part out of {len(future_blocks)}' + '\033[0m')
+            # self.torrent.progress_bat.update(len(d) * BLOCK_LENGTH)
+            # print(f'\033[92mgot {i} part out of {len(future_blocks)}' + '\033[0m')
         blocks = await asyncio.gather(*future_blocks)
         piece = b''
         for block in blocks:

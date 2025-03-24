@@ -39,6 +39,7 @@ class Tracker:
             await asyncio.wait_for(on_con_lost, TRACKER_TIMEOUT)
         finally:
             transport.close()
+        # print('reel peers', len(self.peer_list))
         return self.peer_list
         
     async def _get_http_peer_list(self):
@@ -98,7 +99,7 @@ class _UdpTrackerProtocol:
                 # print('announce response received')
                 # print('interval:', interval)
                 # print('leechers:', leechers)
-                print('seeders:', seeders)
+                # print('seeders:', seeders)
                 data = data[20:]
 
                 self.tracker.bytes_to_peers(data)

@@ -80,10 +80,9 @@ class Peer():
                 payload = await self.reader.readexactly(length)
                 await self._handle_message(message_id, payload)
             except Exception as e:
-                print('exception in listen', e, type(e))
-                self.healthy = False
+                # print('exception in listen', e, type(e))
+                await self.drop()
                 break
-        await self.drop()
     
     async def _handle_message(self, message_id, payload):
         # print('message_id', message_id)

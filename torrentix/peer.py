@@ -173,8 +173,11 @@ class Peer():
     async def drop(self):
         # print('dropping')
         if self.writer:
-            self.writer.close()
-            await self.writer.wait_closed()
+            try:
+                self.writer.close()
+                await self.writer.wait_closed()
+            finally:
+                pass
         if self.keep_alive_task:
             self.keep_alive_task.cancel()
         for i in self.events:

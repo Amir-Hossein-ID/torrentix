@@ -176,7 +176,7 @@ class Peer():
             try:
                 self.writer.close()
                 await self.writer.wait_closed()
-            finally:
+            except Exception as e:
                 pass
         if self.keep_alive_task:
             self.keep_alive_task.cancel()

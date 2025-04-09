@@ -1,2 +1,3 @@
 *.torrent
+*.torrentix
 __pycache__

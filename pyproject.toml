@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "torrentix"
-version = "0.1.1"
+version = "0.2.0"
 description = "Torrent Downloader written from scratch in Python"
-readme = "readme.md"
+readme = "Readme.md"
 classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",

@@ -2,6 +2,7 @@ import asyncio
 from hashlib import sha1
 import random
 import os
+import pickle
 
 import aiofiles
 from tqdm import tqdm
@@ -48,30 +49,45 @@ class Torrent:
         self.in_progress = {}
         self.done = []
     
-    async def _check_pieces(self):
-        cur_piece = 0
-        data = b''
-        for file in self.files:
-            async with aiofiles.open(file['path'], 'r+b') as f:
-                await f.truncate(file['length'])
-                while True:
-                    data += await f.read(self.piece_length - len(data))
-                    if len(data) != self.piece_length:
-                        break
-                    if sha1(data).digest() == self.torrent_data['info']['pieces'][cur_piece * 20: (cur_piece+1) * 20]:
-                        # print('\033[96m' + 'already got piece', cur_piece, '\033[0m')
-                        del self.pieces[cur_piece]
-                        self.done.append(cur_piece)
-                        self.progress_bar.update(self.piece_length)
-                        self._update_progress_bar()
-                    data = b''
-                    cur_piece += 1
-        if sha1(data).digest() == self.torrent_data['info']['pieces'][cur_piece * 20: (cur_piece+1) * 20]:
-            # print('\033[96m' + 'already got piece', cur_piece, '\033[0m')
-            del self.pieces[cur_piece]
-            self.done.append(cur_piece)
-            self.progress_bar.update(len(data))
+    def _check_pieces(self):
+        if os.path.isfile(f'{self.info_hash.hex()}.torrentix'):
+            with open(f'{self.info_hash.hex()}.torrentix', 'rb') as f:
+                self.pieces, self.done = pickle.load(f)
+            if self.piece_count - 1 in self.done:
+                new_value = self.total_length % self.piece_length + self.piece_length * (len(self.done) - 1)
+            else:
+                new_value = self.piece_length * len(self.done)
+            self.progress_bar.n = new_value
+            self.progress_bar.last_print_n = new_value
+            self.progress_bar.refresh()
             self._update_progress_bar()
+        # cur_piece = 0
+        # data = b''
+        # for file in self.files:
+        #     async with aiofiles.open(file['path'], 'r+b') as f:
+        #         # await f.truncate(file['length'])
+        #         while True:
+        #             data += await f.read(self.piece_length - len(data))
+        #             if len(data) != self.piece_length:
+        #                 break
+        #             if sha1(data).digest() == self.torrent_data['info']['pieces'][cur_piece * 20: (cur_piece+1) * 20]:
+        #                 # print('\033[96m' + 'already got piece', cur_piece, '\033[0m')
+        #                 del self.pieces[cur_piece]
+        #                 self.done.append(cur_piece)
+        #                 self.progress_bar.update(self.piece_length)
+        #                 self._update_progress_bar()
+        #             data = b''
+        #             cur_piece += 1
+        # if sha1(data).digest() == self.torrent_data['info']['pieces'][cur_piece * 20: (cur_piece+1) * 20]:
+        #     # print('\033[96m' + 'already got piece', cur_piece, '\033[0m')
+        #     del self.pieces[cur_piece]
+        #     self.done.append(cur_piece)
+        #     self.progress_bar.update(len(data))
+        #     self._update_progress_bar()
+    
+    def _update_pieces(self):
+        with open(f'{self.info_hash.hex()}.torrentix', 'wb') as f:
+            pickle.dump((self.pieces, self.done), f)
     
     def _update_progress_bar(self):
         self.progress_bar.set_description(f'Peers {len(self.peer_manager.active_peers)} / {self.max_peers}'
@@ -82,7 +98,7 @@ class Torrent:
                                  unit='B', unit_scale=True, 
                                  desc=f'Peers 0 / {self.max_peers} Pieces 0 / {self.piece_count} ',
                                  ncols=90)
-        await self._check_pieces()
+        self._check_pieces()
         # print('REMAINING', len(self.pieces), 'from', self.piece_count)
         asyncio.create_task(self.peer_manager.ensure_peers())
         while self.pieces:
@@ -124,6 +140,7 @@ class Torrent:
                                 break
                 self.done.append(index)
                 self.progress_bar.update(len(data))
+                self._update_pieces()
                 self._update_progress_bar()
             else:
                 self.in_progress.pop(index, None)

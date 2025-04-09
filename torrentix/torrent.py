@@ -59,7 +59,6 @@ class Torrent:
                 new_value = self.piece_length * len(self.done)
             self.progress_bar.n = new_value
             self.progress_bar.last_print_n = new_value
-            self.progress_bar.refresh()
             self._update_progress_bar()
         # cur_piece = 0
         # data = b''
